@@ -40,10 +40,9 @@ image:
 service:
   type: LoadBalancer
   # Pin to a specific IP from the Cilium pool. Leave empty to auto-assign.
-  loadBalancerIP: ""
-  # loadBalancerIP: "192.168.8.60"
-  annotations: {}
-  #   io.cilium/lb-ipam-ips: "192.168.8.60"
+  loadBalancerIP: "192.168.8.60"
+  annotations:
+    io.cilium/lb-ipam-ips: "192.168.8.60"
   port: 2283
 
 # =============================================================================
@@ -60,7 +59,7 @@ server:
       memory: 512Mi
     limits:
       cpu: 2000m
-      memory: 2Gi
+      memory: 4Gi
 
   # Spread server pods across different physical nodes.
   # maxSkew: 1 means at most 1 more pod on any node than the minimum.
@@ -78,7 +77,8 @@ server:
     enabled: true
     minAvailable: 1
 
-  env: {}
+  env:
+    TZ: "America/New_York"
 
   nodeSelector: {}
   tolerations: []
@@ -105,7 +105,7 @@ machineLearning:
     type: pvc
     size: 10Gi
     storageClass: "nfs-storage"
-    accessMode: ReadWriteMany
+    accessMode: ReadWriteOnce
 
   env: {}
 
