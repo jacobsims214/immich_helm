@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+name: immich
+description: Immich self-hosted photo & video management — SimsTech homelab stack
+type: application
+version: 0.1.0
+appVersion: v1.134.0
+home: https://immich.app/
+sources:
+  - https://github.com/immich-app/immich
+maintainers:
+  - name: SimsTech
+keywords:
+  - immich
+  - photos
+  - media
+dependencies:
+  - name: valkey
+    version: "0.9.4"
+    repository: https://valkey.io/valkey-helm/

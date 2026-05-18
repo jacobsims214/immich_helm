@@ -1,0 +1,144 @@
+{{- if .Values.machineLearning.enabled }}
+---
+# Immich Machine Learning Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "immich.mlServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: machine-learning
+spec:
+  replicas: {{ .Values.machineLearning.replicaCount }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "immich.componentSelectorLabels" (list . "machine-learning") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "immich.componentSelectorLabels" (list . "machine-learning") | nindent 8 }}
+    spec:
+      containers:
+        - name: machine-learning
+          image: "{{ .Values.image.machineLearning.repository }}:{{ .Values.image.machineLearning.tag }}"
+          imagePullPolicy: {{ .Values.image.machineLearning.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3003
+              protocol: TCP
+          env:
+            # Models are cached at /cache to avoid re-downloading on each restart.
+            - name: TRANSFORMERS_CACHE
+              value: /cache
+            - name: HF_XET_CACHE
+              value: /cache/huggingface-xet
+            - name: MPLCONFIGDIR
+              value: /cache/matplotlib-config
+
+            {{- range $k, $v := .Values.machineLearning.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            # ML startup can be slow on first download — allow up to 10 min
+            failureThreshold: 60
+
+          {{- with .Values.machineLearning.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+
+      volumes:
+        - name: cache
+          {{- if eq .Values.machineLearning.cache.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ include "immich.mlServiceName" . }}-cache
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+
+      {{- with .Values.machineLearning.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.machineLearning.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.machineLearning.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+---
+# Machine Learning ClusterIP Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "immich.mlServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: machine-learning
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "immich.componentSelectorLabels" (list . "machine-learning") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3003
+      targetPort: http
+      protocol: TCP
+
+{{- if eq .Values.machineLearning.cache.type "pvc" }}
+---
+# Machine Learning model cache PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "immich.mlServiceName" . }}-cache
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: machine-learning
+spec:
+  accessModes:
+    - {{ .Values.machineLearning.cache.accessMode }}
+  {{- if .Values.machineLearning.cache.storageClass }}
+  storageClassName: {{ .Values.machineLearning.cache.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.machineLearning.cache.size | quote }}
+{{- end }}
+{{- end }}

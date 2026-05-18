@@ -1,0 +1,180 @@
+{{- if .Values.server.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "immich.serverServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never take a pod down before a new one is ready
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "immich.componentSelectorLabels" (list . "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "immich.componentSelectorLabels" (list . "server") | nindent 8 }}
+      {{- if .Values.immichConfig }}
+      annotations:
+        checksum/config: {{ .Values.immichConfig | toYaml | sha256sum }}
+      {{- end }}
+    spec:
+      # Spread server replicas across different physical nodes so a single
+      # node failure cannot take out all server pods simultaneously.
+      {{- with .Values.server.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: "{{ .Values.image.server.repository }}:{{ .Values.image.server.tag }}"
+          imagePullPolicy: {{ .Values.image.server.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 2283
+              protocol: TCP
+          env:
+            - name: REDIS_HOSTNAME
+              value: {{ include "immich.valkeyServiceName" . | quote }}
+            - name: REDIS_PORT
+              value: "6379"
+            - name: IMMICH_MACHINE_LEARNING_URL
+              value: {{ printf "http://%s:3003" (include "immich.mlServiceName" .) | quote }}
+            - name: DB_HOSTNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "immich.dbSecretName" . | quote }}
+                  key: host
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "immich.dbSecretName" . | quote }}
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "immich.dbSecretName" . | quote }}
+                  key: password
+            - name: DB_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "immich.dbSecretName" . | quote }}
+                  key: dbname
+            {{- if .Values.immichConfig }}
+            - name: IMMICH_CONFIG_FILE
+              value: /config/immich-config.yaml
+            {{- end }}
+            {{- range $k, $v := .Values.server.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+
+          livenessProbe:
+            httpGet:
+              path: /api/server/ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/server/ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/server/ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 30
+
+          {{- with .Values.server.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            - name: library
+              mountPath: /usr/src/app/upload
+            {{- if .Values.immichConfig }}
+            - name: config
+              mountPath: /config
+              readOnly: true
+            {{- end }}
+
+      volumes:
+        - name: library
+          persistentVolumeClaim:
+            claimName: {{ include "immich.libraryPVCName" . }}
+        {{- if .Values.immichConfig }}
+        - name: config
+          configMap:
+            name: {{ include "immich.fullname" . }}-config
+        {{- end }}
+
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+---
+# Immich Server ClusterIP Service (internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "immich.serverServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "immich.componentSelectorLabels" (list . "server") | nindent 4 }}
+  ports:
+    - name: http
+      port: 2283
+      targetPort: http
+      protocol: TCP
+
+{{- if .Values.server.podDisruptionBudget.enabled }}
+---
+# PodDisruptionBudget — guarantees at least minAvailable server pods remain
+# up during voluntary disruptions (node drain, rolling upgrade, etc.)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "immich.serverServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  minAvailable: {{ .Values.server.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "immich.componentSelectorLabels" (list . "server") | nindent 6 }}
+{{- end }}
+{{- end }}

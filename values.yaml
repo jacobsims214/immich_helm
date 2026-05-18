@@ -1,0 +1,250 @@
+# =============================================================================
+# Immich Helm Chart — SimsTech Homelab (Production)
+# =============================================================================
+#
+# Stack:
+#   - Database:  CloudNative-PG 3-instance HA cluster w/ pgvecto.rs
+#                Synchronous replication — no data loss on primary failover
+#   - Cache:     Valkey official subchart, master + 2 replicas across 3 nodes
+#   - Storage:   NFS PVC for library (ZFS RAID on 192.168.8.251)
+#   - Backups:   Continuous WAL + daily base backups → MinIO at s3.simstech.cloud
+#   - Network:   Cilium LoadBalancer IP from pool 192.168.8.50-99
+#
+# Prerequisites (run before first deploy):
+#   1. kubectl create namespace immich
+#   2. ./scripts/create-immich-secrets.sh
+#      Creates: immich-minio-creds (ACCESS_KEY_ID, SECRET_ACCESS_KEY)
+#   3. helm dependency update  (pulls valkey subchart)
+#
+# =============================================================================
+
+nameOverride: ""
+fullnameOverride: ""
+
+# =============================================================================
+# Immich images
+# =============================================================================
+image:
+  server:
+    repository: ghcr.io/immich-app/immich-server
+    tag: v1.134.0
+    pullPolicy: IfNotPresent
+  machineLearning:
+    repository: ghcr.io/immich-app/immich-machine-learning
+    tag: v1.134.0
+    pullPolicy: IfNotPresent
+
+# =============================================================================
+# Service — Cilium LoadBalancer (gets IP from pool 192.168.8.50-99)
+# =============================================================================
+service:
+  type: LoadBalancer
+  # Pin to a specific IP from the Cilium pool. Leave empty to auto-assign.
+  loadBalancerIP: ""
+  # loadBalancerIP: "192.168.8.60"
+  annotations: {}
+  #   io.cilium/lb-ipam-ips: "192.168.8.60"
+  port: 2283
+
+# =============================================================================
+# Immich Server — 2 replicas across 2 different nodes
+# Stateless: all state lives in postgres (CNPG) and NFS, safe to scale.
+# =============================================================================
+server:
+  enabled: true
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  # Spread server pods across different physical nodes.
+  # maxSkew: 1 means at most 1 more pod on any node than the minimum.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: server
+
+  # PodDisruptionBudget — always keep at least 1 server pod up during
+  # voluntary disruptions (node drain, rolling upgrade, etc.)
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  env: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Immich Machine Learning — single instance (model cache is not shareable)
+# =============================================================================
+machineLearning:
+  enabled: true
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+  # PVC cache keeps downloaded models across pod restarts — critical for
+  # fast recovery since models can be several GB.
+  cache:
+    type: pvc
+    size: 10Gi
+    storageClass: "nfs-storage"
+    accessMode: ReadWriteMany
+
+  env: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Persistence — Library (photos/videos, RWX so both server replicas can mount)
+# =============================================================================
+persistence:
+  library:
+    # Set existingClaim to reuse a pre-existing PVC; leave empty to create one.
+    existingClaim: ""
+    storageClass: "nfs-storage"
+    accessMode: ReadWriteMany
+    size: 500Gi
+
+# =============================================================================
+# Valkey — official valkey-io/valkey-helm subchart v0.9.4 (appVersion 9.0.2)
+#
+# Replication mode: 1 master + 2 replicas across 3 nodes.
+# minReplicasToWrite: 1 — master refuses writes if isolated (split-brain guard).
+# =============================================================================
+valkey:
+  image:
+    repository: valkey/valkey   # subchart prepends docker.io automatically
+    tag: "9.0.2-alpine"         # pinned — matches chart 0.9.4 appVersion
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistent data for the master node.
+  dataStorage:
+    enabled: true
+    requestedSize: 1Gi
+    className: "nfs-storage"
+
+  # Replication — master + 2 replicas, one per node.
+  replica:
+    enabled: true
+    replicas: 2
+    # Each replica needs its own PVC.
+    persistence:
+      size: 1Gi
+      storageClass: "nfs-storage"
+    # Require at least 1 replica in sync before master accepts writes.
+    # Prevents data loss if master dies before replicating.
+    minReplicasToWrite: 1
+    minReplicasMaxLag: 10
+
+  # Spread master and replicas across different nodes.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: valkey
+
+  # PodDisruptionBudget — keep at least 2 Valkey pods (master + 1 replica)
+  # available during voluntary disruptions.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# =============================================================================
+# Database — CloudNative-PG HA Cluster (3 instances)
+# =============================================================================
+database:
+  # 3 instances = 1 primary + 2 synchronous standbys.
+  # CNPG promotes a standby automatically if the primary fails (~30s).
+  instances: 3
+
+  # pgvecto.rs image — required by Immich for vector similarity search (smart search).
+  image: "ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3"
+
+  storage:
+    size: 20Gi
+    storageClass: "nfs-storage"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  # minSyncReplicas: primary requires at least this many replicas to be in
+  # sync before acknowledging a write. Prevents data loss on failover.
+  # maxSyncReplicas: upper bound (cannot exceed instances - 1).
+  minSyncReplicas: 1
+  maxSyncReplicas: 2
+
+  # ---------------------------------------------------------------------------
+  # Backup — CNPG barman-cloud → MinIO at s3.simstech.cloud
+  # Continuous WAL archiving starts immediately; base backups run on schedule.
+  # Together these give you point-in-time recovery to any second.
+  # ---------------------------------------------------------------------------
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"   # 2:00 AM daily base backup
+    retentionPolicy: "30d"
+
+    s3:
+      endpoint: "https://s3.simstech.cloud"
+      bucket: "immich-db-backups"
+      path: "/immich"
+      # MinIO doesn't enforce region but barman-cloud requires a non-empty value.
+      region: "us-east-1"
+      # Secret created by scripts/create-immich-secrets.sh
+      # Keys: ACCESS_KEY_ID, SECRET_ACCESS_KEY
+      credentialsSecret: "immich-minio-creds"
+
+  # ---------------------------------------------------------------------------
+  # Restore — bootstrap a new cluster from an existing MinIO backup.
+  # CNPG only acts on this during initial cluster creation.
+  # ---------------------------------------------------------------------------
+  restore:
+    enabled: false
+    serverName: ""   # MUST match the CNPG cluster name that wrote the backup
+    s3Path: ""
+
+# =============================================================================
+# Immich configuration (mounted as /config/immich-config.yaml in the server)
+# Leave as {} to use Immich defaults.
+# Ref: https://immich.app/docs/install/config-file/
+# =============================================================================
+immichConfig: {}
+  # storageTemplate:
+  #   enabled: true
+  #   template: "{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}"
+  # trash:
+  #   enabled: true
+  #   days: 30

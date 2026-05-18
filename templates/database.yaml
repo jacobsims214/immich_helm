@@ -1,0 +1,107 @@
+---
+# CloudNative-PG HA Cluster — 3 instances (1 primary + 2 synchronous standbys)
+#
+# minSyncReplicas: 1 — primary waits for at least 1 replica to confirm a WAL
+# record before acknowledging the write. Guarantees zero data loss on failover.
+#
+# Anti-affinity forces each postgres pod onto a different node so a single
+# node failure cannot take out more than one instance.
+#
+# Image: tensorchord/cloudnative-vectorchord provides the vchord extension
+# (pgvecto.rs) required by Immich for CLIP/face vector similarity search.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "immich.dbClusterName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  instances: {{ .Values.database.instances }}
+
+  imageName: {{ .Values.database.image | quote }}
+
+  postgresql:
+    shared_preload_libraries:
+      - "vchord.so"
+
+  # Synchronous replication settings.
+  # With instances:3, minSyncReplicas:1, maxSyncReplicas:2 the primary will
+  # always wait for at least 1 standby before committing. This means you can
+  # lose the primary and any one standby and still have a usable replica with
+  # no data loss.
+  minSyncReplicas: {{ .Values.database.minSyncReplicas }}
+  maxSyncReplicas: {{ .Values.database.maxSyncReplicas }}
+
+  # Force each postgres pod onto a different Kubernetes node.
+  # CNPG respects standard pod affinity rules on its managed pods.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    # Preferred (soft) keeps the cluster functional even if you only have
+    # 2 schedulable nodes temporarily. Change to Required for strict HA.
+    podAntiAffinityType: preferred
+
+  bootstrap:
+    {{- if .Values.database.restore.enabled }}
+    recovery:
+      source: {{ .Values.database.restore.serverName | quote }}
+    {{- else }}
+    initdb:
+      database: immich
+      owner: immich
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
+        - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
+    {{- end }}
+
+  {{- if .Values.database.restore.enabled }}
+  externalClusters:
+    - name: {{ .Values.database.restore.serverName | quote }}
+      barmanObjectStore:
+        destinationPath: {{ .Values.database.restore.s3Path | quote }}
+        endpointURL: {{ .Values.database.backup.s3.endpoint | quote }}
+        s3Credentials:
+          accessKeyId:
+            name: {{ .Values.database.backup.s3.credentialsSecret | quote }}
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: {{ .Values.database.backup.s3.credentialsSecret | quote }}
+            key: SECRET_ACCESS_KEY
+        wal:
+          compression: gzip
+  {{- end }}
+
+  storage:
+    size: {{ .Values.database.storage.size | quote }}
+    {{- if .Values.database.storage.storageClass }}
+    storageClass: {{ .Values.database.storage.storageClass | quote }}
+    {{- end }}
+
+  {{- with .Values.database.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+  {{- if .Values.database.backup.enabled }}
+  backup:
+    barmanObjectStore:
+      destinationPath: {{ printf "s3://%s%s" .Values.database.backup.s3.bucket .Values.database.backup.s3.path | quote }}
+      endpointURL: {{ .Values.database.backup.s3.endpoint | quote }}
+      s3Credentials:
+        accessKeyId:
+          name: {{ .Values.database.backup.s3.credentialsSecret | quote }}
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: {{ .Values.database.backup.s3.credentialsSecret | quote }}
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+        jobs: 2
+    retentionPolicy: {{ .Values.database.backup.retentionPolicy | quote }}
+  {{- end }}

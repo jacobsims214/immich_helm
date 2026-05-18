@@ -1,0 +1,52 @@
+{{- if not .Values.persistence.library.existingClaim }}
+---
+# Library PVC — shared between immich-server and immich-machine-learning.
+# Backed by NFS (192.168.8.251) via the nfs-storage StorageClass.
+# ReadWriteMany is required so both pods can mount simultaneously.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "immich.fullname" . }}-library
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: library
+spec:
+  accessModes:
+    - {{ .Values.persistence.library.accessMode }}
+  {{- if .Values.persistence.library.storageClass }}
+  storageClassName: {{ .Values.persistence.library.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.library.size | quote }}
+{{- end }}
+
+---
+# Immich public-facing LoadBalancer Service.
+# Cilium LB-IPAM assigns an IP from the pool 192.168.8.50-99.
+# Pin to a specific IP by setting service.loadBalancerIP in values.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "immich.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loadbalancer
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP | quote }}
+  {{- end }}
+  selector:
+    {{- include "immich.componentSelectorLabels" (list . "server") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

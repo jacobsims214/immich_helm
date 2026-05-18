@@ -1,0 +1,15 @@
+{{- if .Values.immichConfig }}
+---
+# Immich configuration ConfigMap — mounted at /config/immich-config.yaml in the server.
+# Enable via values.yaml → immichConfig: { ... }
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "immich.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "immich.labels" . | nindent 4 }}
+data:
+  immich-config.yaml: |
+    {{- .Values.immichConfig | toYaml | nindent 4 }}
+{{- end }}
