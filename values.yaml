@@ -27,11 +27,11 @@ fullnameOverride: ""
 image:
   server:
     repository: ghcr.io/immich-app/immich-server
-    tag: v1.134.0
+    tag: v2.7.5
     pullPolicy: IfNotPresent
   machineLearning:
     repository: ghcr.io/immich-app/immich-machine-learning
-    tag: v1.134.0
+    tag: v2.7.5
     pullPolicy: IfNotPresent
 
 # =============================================================================
@@ -188,9 +188,8 @@ database:
   # CNPG promotes a standby automatically if the primary fails (~30s).
   instances: 3
 
-  # pgvecto.rs image — required by Immich for vector similarity search (smart search).
-  # Immich v1.134.0 requires VectorChord >=0.3 <0.4 — use 16.9-0.3.0
-  image: "ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0"
+  # Immich v2.7.5 requires VectorChord 0.4.3
+  image: "ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.2"
 
   storage:
     size: 20Gi

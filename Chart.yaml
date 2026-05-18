@@ -4,7 +4,7 @@ name: immich
 description: Immich self-hosted photo & video management — SimsTech homelab stack
 type: application
 version: 0.1.0
-appVersion: v1.134.0
+appVersion: v2.7.5
 home: https://immich.app/
 sources:
   - https://github.com/immich-app/immich
