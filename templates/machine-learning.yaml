@@ -21,6 +21,9 @@ spec:
       labels:
         {{- include "immich.componentSelectorLabels" (list . "machine-learning") | nindent 8 }}
     spec:
+      # Prevent Kubernetes from injecting IMMICH_PORT=tcp://... service env vars
+      # into the pod, which Immich tries to parse as an integer and crashes.
+      enableServiceLinks: false
       containers:
         - name: machine-learning
           image: "{{ .Values.image.machineLearning.repository }}:{{ .Values.image.machineLearning.tag }}"

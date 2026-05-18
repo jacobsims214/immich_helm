@@ -27,6 +27,9 @@ spec:
         checksum/config: {{ .Values.immichConfig | toYaml | sha256sum }}
       {{- end }}
     spec:
+      # Prevent Kubernetes from injecting IMMICH_PORT=tcp://... service env vars
+      # into the pod, which Immich tries to parse as an integer and crashes.
+      enableServiceLinks: false
       # Spread server replicas across different physical nodes so a single
       # node failure cannot take out all server pods simultaneously.
       {{- with .Values.server.topologySpreadConstraints }}
