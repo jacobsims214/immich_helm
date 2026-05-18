@@ -79,6 +79,7 @@ server:
 
   env:
     TZ: "America/New_York"
+    IMMICH_PORT: "2283"
 
   nodeSelector: {}
   tolerations: []
