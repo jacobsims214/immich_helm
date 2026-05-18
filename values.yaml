@@ -80,6 +80,7 @@ server:
   env:
     TZ: "America/New_York"
     IMMICH_PORT: "2283"
+    DB_VECTOR_EXTENSION: "vectorchord"
 
   nodeSelector: {}
   tolerations: []
@@ -188,7 +189,8 @@ database:
   instances: 3
 
   # pgvecto.rs image — required by Immich for vector similarity search (smart search).
-  image: "ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3"
+  # Immich v1.134.0 requires VectorChord >=0.3 <0.4 — use 16.9-0.3.0
+  image: "ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0"
 
   storage:
     size: 20Gi
