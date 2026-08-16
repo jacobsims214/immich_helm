@@ -211,7 +211,7 @@ database:
   # Together these give you point-in-time recovery to any second.
   # ---------------------------------------------------------------------------
   backup:
-    enabled: true
+    enabled: false
     schedule: "0 2 * * *"   # 2:00 AM daily base backup
     retentionPolicy: "30d"
 
