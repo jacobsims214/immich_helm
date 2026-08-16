@@ -35,15 +35,20 @@ image:
     pullPolicy: IfNotPresent
 
 # =============================================================================
-# Service — Cilium LoadBalancer (gets IP from pool 192.168.8.50-99)
+# Service — ClusterIP behind Traefik
 # =============================================================================
 service:
-  type: LoadBalancer
-  # Pin to a specific IP from the Cilium pool. Leave empty to auto-assign.
-  loadBalancerIP: "192.168.8.60"
-  annotations:
-    io.cilium/lb-ipam-ips: "192.168.8.60"
+  type: ClusterIP
   port: 2283
+
+# Ingress — Traefik with wildcard TLS
+# =============================================================================
+ingress:
+  enabled: true
+  className: traefik
+  host: immich.simstech.cloud
+  tlsEnabled: true
+  tlsSecret: simstech-wildcard-tls
 
 # =============================================================================
 # Immich Server — 2 replicas across 2 different nodes

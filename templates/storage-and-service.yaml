@@ -23,9 +23,7 @@ spec:
 {{- end }}
 
 ---
-# Immich public-facing LoadBalancer Service.
-# Cilium LB-IPAM assigns an IP from the pool 192.168.8.50-99.
-# Pin to a specific IP by setting service.loadBalancerIP in values.yaml.
+# Immich Service — ClusterIP, Traefik handles external ingress
 apiVersion: v1
 kind: Service
 metadata:
@@ -33,16 +31,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "immich.labels" . | nindent 4 }}
-    app.kubernetes.io/component: loadbalancer
-  {{- with .Values.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    app.kubernetes.io/component: server
 spec:
   type: {{ .Values.service.type }}
-  {{- if .Values.service.loadBalancerIP }}
-  loadBalancerIP: {{ .Values.service.loadBalancerIP | quote }}
-  {{- end }}
   selector:
     {{- include "immich.componentSelectorLabels" (list . "server") | nindent 4 }}
   ports:
