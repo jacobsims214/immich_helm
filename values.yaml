@@ -41,15 +41,6 @@ service:
   type: ClusterIP
   port: 2283
 
-# Ingress — Traefik with wildcard TLS
-# =============================================================================
-ingress:
-  enabled: true
-  className: traefik
-  host: immich.simstech.cloud
-  tlsEnabled: true
-  tlsSecret: simstech-wildcard-tls
-
 # =============================================================================
 # Immich Server — 2 replicas across 2 different nodes
 # Stateless: all state lives in postgres (CNPG) and NFS, safe to scale.
