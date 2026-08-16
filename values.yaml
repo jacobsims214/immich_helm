@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # Stack:
-#   - Database:  CloudNative-PG 3-instance HA cluster w/ pgvecto.rs
+#   - Database:  CloudNative-PG 3-instance HA cluster w/ VectorChord
 #                Synchronous replication — no data loss on primary failover
 #   - Cache:     Valkey official subchart, master + 2 replicas across 3 nodes
 #   - Storage:   NFS PVC for library (ZFS RAID on 192.168.8.251)
@@ -27,11 +27,11 @@ fullnameOverride: ""
 image:
   server:
     repository: ghcr.io/immich-app/immich-server
-    tag: v2.7.5
+    tag: v3.1.0
     pullPolicy: IfNotPresent
   machineLearning:
     repository: ghcr.io/immich-app/immich-machine-learning
-    tag: v2.7.5
+    tag: v3.1.0
     pullPolicy: IfNotPresent
 
 # =============================================================================
